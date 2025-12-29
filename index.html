@@ -1,0 +1,1285 @@
+<!doctype html>
+<html lang="pt-BR" class="h-full">
+ <head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Smart Home Automation</title>
+  <script src="/_sdk/data_sdk.js"></script>
+  <script src="/_sdk/element_sdk.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body {
+      box-sizing: border-box;
+    }
+    
+    .dark {
+      color-scheme: dark;
+    }
+    
+    .toast {
+      animation: slideIn 0.3s ease-out;
+    }
+    
+    @keyframes slideIn {
+      from {
+        transform: translateY(-100%);
+        opacity: 0;
+      }
+      to {
+        transform: translateY(0);
+        opacity: 1;
+      }
+    }
+    
+    .device-card {
+      transition: all 0.2s ease;
+    }
+    
+    .device-card:hover {
+      transform: translateY(-2%);
+    }
+    
+    .toggle-switch {
+      transition: all 0.3s ease;
+    }
+    
+    .fade-in {
+      animation: fadeIn 0.3s ease-in;
+    }
+    
+    @keyframes fadeIn {
+      from { opacity: 0; }
+      to { opacity: 1; }
+    }
+    
+    .theme-icon-spin {
+      animation: iconSpin 0.6s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+    }
+    
+    @keyframes iconSpin {
+      0% {
+        transform: rotate(0deg) scale(1);
+        opacity: 1;
+      }
+      50% {
+        transform: rotate(180deg) scale(0);
+        opacity: 0;
+      }
+      100% {
+        transform: rotate(360deg) scale(1);
+        opacity: 1;
+      }
+    }
+  </style>
+  <style>@view-transition { navigation: auto; }</style>
+ </head>
+ <body class="h-full w-full overflow-auto">
+  <div id="app" class="w-full h-full"></div>
+  <script>
+    const defaultConfig = {
+      background_color: "#0f172a",
+      surface_color: "#1e293b",
+      text_color: "#f1f5f9",
+      primary_action_color: "#3b82f6",
+      secondary_action_color: "#64748b",
+      font_family: "system-ui",
+      font_size: 16,
+      app_title: "Smart Home",
+      welcome_message: "Bem-vindo ao seu sistema de automação",
+      login_button_text: "Entrar"
+    };
+
+    let config = { ...defaultConfig };
+    let devices = [];
+    let currentUser = null;
+    let isDarkMode = true;
+
+    const dataHandler = {
+      onDataChanged(data) {
+        devices = data;
+        if (currentUser) {
+          renderDashboard();
+        }
+      }
+    };
+
+    async function initApp() {
+      const initResult = await window.dataSdk.init(dataHandler);
+      if (!initResult.isOk) {
+        showToast("Erro ao inicializar o sistema", "error");
+        return;
+      }
+
+      await window.elementSdk.init({
+        defaultConfig,
+        onConfigChange: async (newConfig) => {
+          config = { ...defaultConfig, ...newConfig };
+          if (currentUser) {
+            renderDashboard();
+          } else {
+            renderLogin();
+          }
+        },
+        mapToCapabilities: (cfg) => ({
+          recolorables: [
+            {
+              get: () => cfg.background_color || defaultConfig.background_color,
+              set: (value) => {
+                cfg.background_color = value;
+                window.elementSdk.setConfig({ background_color: value });
+              }
+            },
+            {
+              get: () => cfg.surface_color || defaultConfig.surface_color,
+              set: (value) => {
+                cfg.surface_color = value;
+                window.elementSdk.setConfig({ surface_color: value });
+              }
+            },
+            {
+              get: () => cfg.text_color || defaultConfig.text_color,
+              set: (value) => {
+                cfg.text_color = value;
+                window.elementSdk.setConfig({ text_color: value });
+              }
+            },
+            {
+              get: () => cfg.primary_action_color || defaultConfig.primary_action_color,
+              set: (value) => {
+                cfg.primary_action_color = value;
+                window.elementSdk.setConfig({ primary_action_color: value });
+              }
+            },
+            {
+              get: () => cfg.secondary_action_color || defaultConfig.secondary_action_color,
+              set: (value) => {
+                cfg.secondary_action_color = value;
+                window.elementSdk.setConfig({ secondary_action_color: value });
+              }
+            }
+          ],
+          borderables: [],
+          fontEditable: {
+            get: () => cfg.font_family || defaultConfig.font_family,
+            set: (value) => {
+              cfg.font_family = value;
+              window.elementSdk.setConfig({ font_family: value });
+            }
+          },
+          fontSizeable: {
+            get: () => cfg.font_size || defaultConfig.font_size,
+            set: (value) => {
+              cfg.font_size = value;
+              window.elementSdk.setConfig({ font_size: value });
+            }
+          }
+        }),
+        mapToEditPanelValues: (cfg) => new Map([
+          ["app_title", cfg.app_title || defaultConfig.app_title],
+          ["welcome_message", cfg.welcome_message || defaultConfig.welcome_message],
+          ["login_button_text", cfg.login_button_text || defaultConfig.login_button_text]
+        ])
+      });
+
+      renderLogin();
+    }
+
+    let loginMode = 'login';
+
+    function renderLogin() {
+      const app = document.getElementById('app');
+      const baseSize = config.font_size || defaultConfig.font_size;
+      const fontFamily = config.font_family || defaultConfig.font_family;
+      const bgColor = isDarkMode ? (config.background_color || defaultConfig.background_color) : '#f1f5f9';
+      const surfaceColor = isDarkMode ? (config.surface_color || defaultConfig.surface_color) : '#ffffff';
+      const textColor = isDarkMode ? (config.text_color || defaultConfig.text_color) : '#0f172a';
+      const primaryColor = config.primary_action_color || defaultConfig.primary_action_color;
+      const secondaryColor = config.secondary_action_color || defaultConfig.secondary_action_color;
+      
+      let formContent = '';
+      let titleText = '';
+      let buttonText = '';
+      let footerLinks = '';
+
+      if (loginMode === 'login') {
+        titleText = 'Entrar';
+        buttonText = config.login_button_text || defaultConfig.login_button_text;
+        formContent = `
+          <div>
+            <label for="username" style="display: block; font-size: ${baseSize * 0.88}px; font-weight: 600; color: ${textColor}; margin-bottom: 10px;">Usuário</label>
+            <input 
+              type="text" 
+              id="username" 
+              required
+              placeholder="Digite seu usuário"
+              style="width: 100%; padding: 14px 16px; border-radius: 13px; border: 2px solid ${isDarkMode ? '#334155' : '#e2e8f0'}; background: ${isDarkMode ? '#0f172a' : '#ffffff'}; color: ${textColor}; font-size: ${baseSize}px; font-family: ${fontFamily}, -apple-system, sans-serif; transition: all 0.2s ease;"
+              onfocus="this.style.borderColor='${primaryColor}'; this.style.boxShadow='0 0 0 3px ${primaryColor}20'"
+              onblur="this.style.borderColor='${isDarkMode ? '#334155' : '#e2e8f0'}'; this.style.boxShadow='none'"
+            />
+          </div>
+          
+          <div>
+            <label for="password" style="display: block; font-size: ${baseSize * 0.88}px; font-weight: 600; color: ${textColor}; margin-bottom: 10px;">Senha</label>
+            <input 
+              type="password" 
+              id="password" 
+              required
+              placeholder="Digite sua senha"
+              style="width: 100%; padding: 14px 16px; border-radius: 13px; border: 2px solid ${isDarkMode ? '#334155' : '#e2e8f0'}; background: ${isDarkMode ? '#0f172a' : '#ffffff'}; color: ${textColor}; font-size: ${baseSize}px; font-family: ${fontFamily}, -apple-system, sans-serif; transition: all 0.2s ease;"
+              onfocus="this.style.borderColor='${primaryColor}'; this.style.boxShadow='0 0 0 3px ${primaryColor}20'"
+              onblur="this.style.borderColor='${isDarkMode ? '#334155' : '#e2e8f0'}'; this.style.boxShadow='none'"
+            />
+          </div>
+
+          <div class="flex items-center justify-between">
+            <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+              <input type="checkbox" id="rememberMe" style="width: 16px; height: 16px; cursor: pointer; accent-color: ${primaryColor};">
+              <span style="font-size: ${baseSize * 0.85}px; color: ${textColor};">Lembrar de mim</span>
+            </label>
+            <button 
+              type="button"
+              id="forgotPasswordBtn"
+              style="font-size: ${baseSize * 0.85}px; color: ${primaryColor}; background: none; border: none; cursor: pointer; text-decoration: underline; font-family: ${fontFamily}, -apple-system, sans-serif;"
+            >
+              Esqueci a senha
+            </button>
+          </div>
+        `;
+        footerLinks = `
+          <div style="text-align: center; margin-top: 24px;">
+            <span style="font-size: ${baseSize * 0.85}px; color: ${textColor}; opacity: 0.7;">Não tem uma conta? </span>
+            <button 
+              type="button"
+              id="showRegisterBtn"
+              style="font-size: ${baseSize * 0.85}px; color: ${primaryColor}; background: none; border: none; cursor: pointer; font-weight: 600; font-family: ${fontFamily}, -apple-system, sans-serif;"
+            >
+              Cadastre-se
+            </button>
+          </div>
+        `;
+      } else if (loginMode === 'register') {
+        titleText = 'Criar Conta';
+        buttonText = 'Cadastrar';
+        formContent = `
+          <div>
+            <label for="fullName" style="display: block; font-size: ${baseSize * 0.85}px; font-weight: 500; color: ${textColor}; margin-bottom: 8px;">Nome Completo</label>
+            <input 
+              type="text" 
+              id="fullName" 
+              required
+              placeholder="Digite seu nome completo"
+              style="width: 100%; padding: 12px; border-radius: 13px; border: 1px solid ${isDarkMode ? '#334155' : '#cbd5e1'}; background: ${isDarkMode ? '#0f172a' : '#f8fafc'}; color: ${textColor}; font-size: ${baseSize}px; font-family: ${fontFamily}, -apple-system, sans-serif;"
+            />
+          </div>
+
+          <div>
+            <label for="email" style="display: block; font-size: ${baseSize * 0.85}px; font-weight: 500; color: ${textColor}; margin-bottom: 8px;">E-mail</label>
+            <input 
+              type="email" 
+              id="email" 
+              required
+              placeholder="seu@email.com"
+              style="width: 100%; padding: 12px; border-radius: 13px; border: 1px solid ${isDarkMode ? '#334155' : '#cbd5e1'}; background: ${isDarkMode ? '#0f172a' : '#f8fafc'}; color: ${textColor}; font-size: ${baseSize}px; font-family: ${fontFamily}, -apple-system, sans-serif;"
+            />
+          </div>
+
+          <div>
+            <label for="username" style="display: block; font-size: ${baseSize * 0.85}px; font-weight: 500; color: ${textColor}; margin-bottom: 8px;">Usuário</label>
+            <input 
+              type="text" 
+              id="username" 
+              required
+              placeholder="Escolha um nome de usuário"
+              style="width: 100%; padding: 12px; border-radius: 13px; border: 1px solid ${isDarkMode ? '#334155' : '#cbd5e1'}; background: ${isDarkMode ? '#0f172a' : '#f8fafc'}; color: ${textColor}; font-size: ${baseSize}px; font-family: ${fontFamily}, -apple-system, sans-serif;"
+            />
+          </div>
+          
+          <div>
+            <label for="password" style="display: block; font-size: ${baseSize * 0.85}px; font-weight: 500; color: ${textColor}; margin-bottom: 8px;">Senha</label>
+            <input 
+              type="password" 
+              id="password" 
+              required
+              minlength="6"
+              placeholder="Mínimo 6 caracteres"
+              style="width: 100%; padding: 12px; border-radius: 13px; border: 1px solid ${isDarkMode ? '#334155' : '#cbd5e1'}; background: ${isDarkMode ? '#0f172a' : '#f8fafc'}; color: ${textColor}; font-size: ${baseSize}px; font-family: ${fontFamily}, -apple-system, sans-serif;"
+            />
+          </div>
+
+          <div>
+            <label for="confirmPassword" style="display: block; font-size: ${baseSize * 0.85}px; font-weight: 500; color: ${textColor}; margin-bottom: 8px;">Confirmar Senha</label>
+            <input 
+              type="password" 
+              id="confirmPassword" 
+              required
+              minlength="6"
+              placeholder="Digite a senha novamente"
+              style="width: 100%; padding: 12px; border-radius: 13px; border: 1px solid ${isDarkMode ? '#334155' : '#cbd5e1'}; background: ${isDarkMode ? '#0f172a' : '#f8fafc'}; color: ${textColor}; font-size: ${baseSize}px; font-family: ${fontFamily}, -apple-system, sans-serif;"
+            />
+          </div>
+        `;
+        footerLinks = `
+          <div style="text-align: center; margin-top: 24px;">
+            <span style="font-size: ${baseSize * 0.85}px; color: ${textColor}; opacity: 0.7;">Já tem uma conta? </span>
+            <button 
+              type="button"
+              id="showLoginBtn"
+              style="font-size: ${baseSize * 0.85}px; color: ${primaryColor}; background: none; border: none; cursor: pointer; font-weight: 600; font-family: ${fontFamily}, -apple-system, sans-serif;"
+            >
+              Entrar
+            </button>
+          </div>
+        `;
+      } else if (loginMode === 'forgot') {
+        titleText = 'Recuperar Senha';
+        buttonText = 'Enviar Instruções';
+        formContent = `
+          <div style="padding: 16px; background: ${isDarkMode ? '#0f172a' : '#f8fafc'}; border-radius: 8px; margin-bottom: 16px;">
+            <p style="font-size: ${baseSize * 0.85}px; color: ${textColor}; line-height: 1.5;">
+              Digite seu e-mail cadastrado e enviaremos instruções para recuperar sua senha.
+            </p>
+          </div>
+
+          <div>
+            <label for="email" style="display: block; font-size: ${baseSize * 0.85}px; font-weight: 500; color: ${textColor}; margin-bottom: 8px;">E-mail</label>
+            <input 
+              type="email" 
+              id="email" 
+              required
+              placeholder="seu@email.com"
+              style="width: 100%; padding: 12px; border-radius: 13px; border: 1px solid ${isDarkMode ? '#334155' : '#cbd5e1'}; background: ${isDarkMode ? '#0f172a' : '#f8fafc'}; color: ${textColor}; font-size: ${baseSize}px; font-family: ${fontFamily}, -apple-system, sans-serif;"
+            />
+          </div>
+        `;
+        footerLinks = `
+          <div style="text-align: center; margin-top: 24px;">
+            <button 
+              type="button"
+              id="backToLoginBtn"
+              style="font-size: ${baseSize * 0.85}px; color: ${primaryColor}; background: none; border: none; cursor: pointer; font-weight: 600; font-family: ${fontFamily}, -apple-system, sans-serif;"
+            >
+              ← Voltar para o login
+            </button>
+          </div>
+        `;
+      }
+      
+      app.innerHTML = `
+        <div class="w-full h-full fade-in" style="background: ${bgColor}; font-family: ${fontFamily}, -apple-system, sans-serif;">
+          <div class="flex items-center justify-center h-full p-4">
+            <div class="w-full max-w-md">
+              <div class="rounded-3xl p-10 shadow-2xl" style="background: ${surfaceColor}; border: 1px solid ${isDarkMode ? '#334155' : '#e2e8f0'}; border-radius: 28px;">
+                <div class="text-center mb-10">
+                  <div class="flex justify-center mb-6">
+                    <div style="width: 80px; height: 80px; border-radius: 20px; background: linear-gradient(135deg, ${primaryColor} 0%, ${primaryColor}dd 100%); display: flex; align-items: center; justify-content: center; box-shadow: 0 8px 24px ${primaryColor}40;">
+                      <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
+                        <path d="M24 10L12 20V38H20V28H28V38H36V20L24 10Z" fill="white" stroke="white" stroke-width="1.5" stroke-linejoin="round"/>
+                      </svg>
+                    </div>
+                  </div>
+                  <h1 style="font-size: ${baseSize * 2.2}px; font-weight: 700; color: ${textColor}; margin-bottom: 12px; letter-spacing: -0.5px;">${titleText}</h1>
+                  <p style="font-size: ${baseSize * 0.95}px; color: ${textColor}; opacity: 0.65; line-height: 1.5;">${config.welcome_message || defaultConfig.welcome_message}</p>
+                </div>
+                
+                <form id="authForm" style="display: flex; flex-direction: column; gap: 20px;">
+                  ${formContent}
+                  
+                  <button 
+                    type="submit"
+                    style="width: 100%; padding: 16px; border-radius: 14px; background: ${primaryColor}; color: white; font-weight: 600; font-size: ${baseSize}px; border: none; cursor: pointer; font-family: ${fontFamily}, -apple-system, sans-serif; margin-top: 8px; box-shadow: 0 4px 12px ${primaryColor}40; transition: all 0.2s ease;"
+                    onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 6px 16px ${primaryColor}50'"
+                    onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 4px 12px ${primaryColor}40'"
+                  >
+                    ${buttonText}
+                  </button>
+                </form>
+
+                ${footerLinks}
+              </div>
+            </div>
+          </div>
+        </div>
+      `;
+
+      document.getElementById('authForm').addEventListener('submit', handleAuthSubmit);
+      
+      const showRegisterBtn = document.getElementById('showRegisterBtn');
+      if (showRegisterBtn) {
+        showRegisterBtn.addEventListener('click', () => {
+          loginMode = 'register';
+          renderLogin();
+        });
+      }
+
+      const showLoginBtn = document.getElementById('showLoginBtn');
+      if (showLoginBtn) {
+        showLoginBtn.addEventListener('click', () => {
+          loginMode = 'login';
+          renderLogin();
+        });
+      }
+
+      const forgotPasswordBtn = document.getElementById('forgotPasswordBtn');
+      if (forgotPasswordBtn) {
+        forgotPasswordBtn.addEventListener('click', () => {
+          loginMode = 'forgot';
+          renderLogin();
+        });
+      }
+
+      const backToLoginBtn = document.getElementById('backToLoginBtn');
+      if (backToLoginBtn) {
+        backToLoginBtn.addEventListener('click', () => {
+          loginMode = 'login';
+          renderLogin();
+        });
+      }
+    }
+
+    function handleAuthSubmit(e) {
+      e.preventDefault();
+      
+      if (loginMode === 'login') {
+        handleLogin(e);
+      } else if (loginMode === 'register') {
+        handleRegister(e);
+      } else if (loginMode === 'forgot') {
+        handleForgotPassword(e);
+      }
+    }
+
+    function handleRegister(e) {
+      const fullName = document.getElementById('fullName').value;
+      const email = document.getElementById('email').value;
+      const username = document.getElementById('username').value;
+      const password = document.getElementById('password').value;
+      const confirmPassword = document.getElementById('confirmPassword').value;
+
+      if (password !== confirmPassword) {
+        showToast("As senhas não coincidem", "error");
+        return;
+      }
+
+      if (password.length < 6) {
+        showToast("A senha deve ter no mínimo 6 caracteres", "error");
+        return;
+      }
+
+      showToast("Cadastro realizado com sucesso!", "success");
+      setTimeout(() => {
+        loginMode = 'login';
+        renderLogin();
+      }, 1500);
+    }
+
+    function handleForgotPassword(e) {
+      const emailInput = document.getElementById('email');
+      const email = emailInput.value;
+
+      if (!email) {
+        showToast("Por favor, digite seu e-mail", "error");
+        return;
+      }
+
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(email)) {
+        showToast("Por favor, digite um e-mail válido", "error");
+        return;
+      }
+
+      const submitBtn = document.querySelector('#authForm button[type="submit"]');
+      const originalText = submitBtn.textContent;
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Enviando...';
+      submitBtn.style.opacity = '0.6';
+      submitBtn.style.cursor = 'not-allowed';
+
+      setTimeout(() => {
+        submitBtn.disabled = false;
+        submitBtn.textContent = originalText;
+        submitBtn.style.opacity = '1';
+        submitBtn.style.cursor = 'pointer';
+
+        showToast(`✉�� E-mail enviado para ${email}`, "success");
+        
+        emailInput.value = '';
+
+        setTimeout(() => {
+          loginMode = 'login';
+          renderLogin();
+          showToast("Você pode fazer login assim que redefinir sua senha", "success");
+        }, 2000);
+      }, 1500);
+    }
+
+    function handleLogin(e) {
+      e.preventDefault();
+      const username = document.getElementById('username').value;
+      const password = document.getElementById('password').value;
+
+      if (username && password) {
+        currentUser = { username };
+        showToast("Login realizado com sucesso!", "success");
+        renderDashboard();
+      }
+    }
+
+    function renderDashboard() {
+      const app = document.getElementById('app');
+      const baseSize = config.font_size || defaultConfig.font_size;
+      const fontFamily = config.font_family || defaultConfig.font_family;
+      const bgColor = isDarkMode ? (config.background_color || defaultConfig.background_color) : '#f1f5f9';
+      const surfaceColor = isDarkMode ? (config.surface_color || defaultConfig.surface_color) : '#ffffff';
+      const textColor = isDarkMode ? (config.text_color || defaultConfig.text_color) : '#0f172a';
+      const primaryColor = config.primary_action_color || defaultConfig.primary_action_color;
+      const secondaryColor = config.secondary_action_color || defaultConfig.secondary_action_color;
+
+      const rooms = [...new Set(devices.map(d => d.room))];
+      const deviceCount = devices.length;
+      const activeCount = devices.filter(d => d.status).length;
+
+      app.innerHTML = `
+        <div class="w-full h-full fade-in" style="background: ${bgColor}; font-family: ${fontFamily}, -apple-system, sans-serif;">
+          <div id="toast-container" style="position: fixed; top: 20px; right: 20px; z-index: 1000;"></div>
+          
+          <div class="w-full h-full overflow-auto">
+            <header style="background: ${surfaceColor}; border-bottom: 1px solid ${isDarkMode ? '#334155' : '#e2e8f0'}; padding: 12px 16px;">
+              <div class="flex items-center justify-between gap-2">
+                <div class="flex items-center gap-2 min-w-0">
+                  <div style="width: 40px; height: 40px; border-radius: 12px; background: linear-gradient(135deg, ${primaryColor} 0%, ${primaryColor}dd 100%); display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 16px ${primaryColor}40; flex-shrink: 0;">
+                    <svg width="24" height="24" viewBox="0 0 48 48" fill="none">
+                      <path d="M24 12L14 20V36H20V28H28V36H34V20L24 12Z" fill="white" stroke="white" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+                    </svg>
+                  </div>
+                  <div class="min-w-0">
+                    <h1 style="font-size: ${baseSize * 1.1}px; font-weight: 700; color: ${textColor}; letter-spacing: -0.3px; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${config.app_title || defaultConfig.app_title}</h1>
+                    <p style="font-size: ${baseSize * 0.75}px; color: ${textColor}; opacity: 0.65; margin-top: 2px; line-height: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">Olá, ${currentUser.username} 👋</p>
+                  </div>
+                </div>
+                
+                <div class="flex items-center gap-2 flex-shrink-0">
+                  <button 
+                    id="themeToggle"
+                    style="padding: 0; border-radius: 10px; background: ${isDarkMode ? '#334155' : '#e2e8f0'}; border: none; cursor: pointer; transition: background 0.2s ease; width: 36px; height: 36px; display: flex; align-items: center; justify-content: center; flex-shrink: 0;"
+                  >
+                    <span id="themeIcon" style="display: inline-block; font-size: 16px; line-height: 1;">${isDarkMode ? '🌙' : '☀️'}</span>
+                  </button>
+                  
+                  <button 
+                    id="logoutBtn"
+                    style="padding: 8px 14px; border-radius: 10px; background: ${secondaryColor}; color: white; font-weight: 600; font-size: ${baseSize * 0.85}px; border: none; cursor: pointer; font-family: ${fontFamily}, -apple-system, sans-serif; transition: all 0.2s ease; flex-shrink: 0;"
+                  >
+                    Sair
+                  </button>
+                </div>
+              </div>
+            </header>
+
+            <main style="padding: 20px 16px; max-width: 1400px; margin: 0 auto;">
+              <div class="grid grid-cols-3 gap-3 mb-5">
+                <div class="rounded-xl p-4" style="background: ${surfaceColor}; border: 1px solid ${isDarkMode ? '#334155' : '#e2e8f0'}; box-shadow: 0 2px 8px rgba(0,0,0,0.05); border-radius: 16px;">
+                  <div style="font-size: ${baseSize * 0.7}px; color: ${textColor}; opacity: 0.65; margin-bottom: 6px; font-weight: 500;">Dispositivos</div>
+                  <div style="font-size: ${baseSize * 1.6}px; font-weight: 700; color: ${primaryColor};">${deviceCount}</div>
+                </div>
+                
+                <div class="rounded-xl p-4" style="background: ${surfaceColor}; border: 1px solid ${isDarkMode ? '#334155' : '#e2e8f0'}; box-shadow: 0 2px 8px rgba(0,0,0,0.05); border-radius: 16px;">
+                  <div style="font-size: ${baseSize * 0.7}px; color: ${textColor}; opacity: 0.65; margin-bottom: 6px; font-weight: 500;">Ativos</div>
+                  <div style="font-size: ${baseSize * 1.6}px; font-weight: 700; color: #10b981;">${activeCount}</div>
+                </div>
+                
+                <div class="rounded-xl p-4" style="background: ${surfaceColor}; border: 1px solid ${isDarkMode ? '#334155' : '#e2e8f0'}; box-shadow: 0 2px 8px rgba(0,0,0,0.05); border-radius: 16px;">
+                  <div style="font-size: ${baseSize * 0.7}px; color: ${textColor}; opacity: 0.65; margin-bottom: 6px; font-weight: 500;">Cômodos</div>
+                  <div style="font-size: ${baseSize * 1.6}px; font-weight: 700; color: ${primaryColor};">${rooms.length}</div>
+                </div>
+              </div>
+
+              <div class="flex gap-2 mb-5 overflow-x-auto pb-2" style="border-bottom: 2px solid ${isDarkMode ? '#334155' : '#e2e8f0'}; -webkit-overflow-scrolling: touch; scrollbar-width: none; -ms-overflow-style: none;">
+                <button 
+                  id="devicesTab"
+                  class="tab-button"
+                  style="padding: 10px 16px; border: none; background: transparent; color: ${primaryColor}; font-weight: 600; font-size: ${baseSize * 0.9}px; cursor: pointer; border-bottom: 3px solid ${primaryColor}; font-family: ${fontFamily}, -apple-system, sans-serif; margin-bottom: -2px; transition: all 0.2s ease; white-space: nowrap; flex-shrink: 0;"
+                >
+                  📱 Dispositivos
+                </button>
+                <button 
+                  id="consumptionTab"
+                  class="tab-button"
+                  style="padding: 10px 16px; border: none; background: transparent; color: ${textColor}; opacity: 0.6; font-weight: 600; font-size: ${baseSize * 0.9}px; cursor: pointer; border-bottom: 3px solid transparent; font-family: ${fontFamily}, -apple-system, sans-serif; margin-bottom: -2px; transition: all 0.2s ease; white-space: nowrap; flex-shrink: 0;"
+                >
+                  📊 Consumo
+                </button>
+              </div>
+
+              <div id="devicesView">
+                <div class="flex justify-between items-center mb-5 gap-3">
+                  <h2 style="font-size: ${baseSize * 1.2}px; font-weight: 700; color: ${textColor};">Dispositivos</h2>
+                  <button 
+                    id="addDeviceBtn"
+                    style="padding: 10px 16px; border-radius: 12px; background: ${primaryColor}; color: white; font-weight: 600; font-size: ${baseSize * 0.9}px; border: none; cursor: pointer; font-family: ${fontFamily}, -apple-system, sans-serif; box-shadow: 0 4px 12px ${primaryColor}40; transition: all 0.2s ease; white-space: nowrap; flex-shrink: 0;"
+                  >
+                    + Novo
+                  </button>
+                </div>
+                <div id="devicesList" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"></div>
+              </div>
+
+              <div id="consumptionView" style="display: none;">
+                <h2 style="font-size: ${baseSize * 1.15}px; font-weight: 700; color: ${textColor}; margin-bottom: 16px;">Análise de Consumo</h2>
+                
+                <div class="grid grid-cols-1 gap-4">
+                  <div class="rounded-xl p-4" style="background: ${surfaceColor}; border: 1px solid ${isDarkMode ? '#334155' : '#e2e8f0'}; border-radius: 16px;">
+                    <h3 style="font-size: ${baseSize * 0.95}px; font-weight: 600; color: ${textColor}; margin-bottom: 12px;">Consumo por Dispositivo</h3>
+                    <div id="deviceConsumptionChart" style="height: 240px;"></div>
+                  </div>
+
+                  <div class="rounded-xl p-4" style="background: ${surfaceColor}; border: 1px solid ${isDarkMode ? '#334155' : '#e2e8f0'}; border-radius: 16px;">
+                    <h3 style="font-size: ${baseSize * 0.95}px; font-weight: 600; color: ${textColor}; margin-bottom: 12px;">Consumo por Cômodo</h3>
+                    <div id="roomConsumptionChart" style="height: 240px;"></div>
+                  </div>
+
+                  <div class="rounded-xl p-4" style="background: ${surfaceColor}; border: 1px solid ${isDarkMode ? '#334155' : '#e2e8f0'}; border-radius: 16px;">
+                    <h3 style="font-size: ${baseSize * 0.95}px; font-weight: 600; color: ${textColor}; margin-bottom: 12px;">Consumo Semanal</h3>
+                    <div id="weeklyConsumptionChart" style="height: 240px;"></div>
+                  </div>
+
+                  <div class="rounded-xl p-4" style="background: ${surfaceColor}; border: 1px solid ${isDarkMode ? '#334155' : '#e2e8f0'}; border-radius: 16px;">
+                    <h3 style="font-size: ${baseSize * 0.95}px; font-weight: 600; color: ${textColor}; margin-bottom: 12px;">Distribuição por Tipo</h3>
+                    <div id="typeDistributionChart" style="height: 240px;"></div>
+                  </div>
+                </div>
+
+                <div class="rounded-xl p-4 mt-4" style="background: ${surfaceColor}; border: 1px solid ${isDarkMode ? '#334155' : '#e2e8f0'}; border-radius: 16px;">
+                  <h3 style="font-size: ${baseSize * 0.95}px; font-weight: 600; color: ${textColor}; margin-bottom: 12px;">Detalhes de Consumo</h3>
+                  <div id="consumptionTable"></div>
+                </div>
+              </div>
+            </main>
+          </div>
+
+          <div id="modal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); z-index: 999; align-items: center; justify-content: center; padding: 16px;">
+            <div class="rounded-xl p-5 w-full max-w-md" style="background: ${surfaceColor}; border-radius: 20px; max-height: 90%; overflow-y: auto;">
+              <h3 style="font-size: ${baseSize * 1.2}px; font-weight: 700; color: ${textColor}; margin-bottom: 16px;">Novo Dispositivo</h3>
+              
+              <form id="deviceForm" class="space-y-4">
+                <div>
+                  <label for="deviceName" style="display: block; font-size: ${baseSize * 0.85}px; font-weight: 500; color: ${textColor}; margin-bottom: 6px;">Nome</label>
+                  <input 
+                    type="text" 
+                    id="deviceName" 
+                    required
+                    placeholder="Ex: Luz da Sala"
+                    style="width: 100%; padding: 10px 12px; border-radius: 10px; border: 1px solid ${isDarkMode ? '#334155' : '#cbd5e1'}; background: ${isDarkMode ? '#0f172a' : '#f8fafc'}; color: ${textColor}; font-size: ${baseSize * 0.95}px; font-family: ${fontFamily}, -apple-system, sans-serif;"
+                  />
+                </div>
+                
+                <div>
+                  <label for="deviceType" style="display: block; font-size: ${baseSize * 0.85}px; font-weight: 500; color: ${textColor}; margin-bottom: 6px;">Tipo</label>
+                  <select 
+                    id="deviceType" 
+                    required
+                    style="width: 100%; padding: 10px 12px; border-radius: 10px; border: 1px solid ${isDarkMode ? '#334155' : '#cbd5e1'}; background: ${isDarkMode ? '#0f172a' : '#f8fafc'}; color: ${textColor}; font-size: ${baseSize * 0.95}px; font-family: ${fontFamily}, -apple-system, sans-serif;"
+                  >
+                    <option value="light">Luz</option>
+                    <option value="thermostat">Termostato</option>
+                    <option value="lock">Fechadura</option>
+                    <option value="camera">Câmera</option>
+                    <option value="speaker">Alto-falante</option>
+                  </select>
+                </div>
+                
+                <div>
+                  <label for="deviceRoom" style="display: block; font-size: ${baseSize * 0.85}px; font-weight: 500; color: ${textColor}; margin-bottom: 6px;">Cômodo</label>
+                  <input 
+                    type="text" 
+                    id="deviceRoom" 
+                    required
+                    placeholder="Ex: Sala de Estar"
+                    style="width: 100%; padding: 10px 12px; border-radius: 10px; border: 1px solid ${isDarkMode ? '#334155' : '#cbd5e1'}; background: ${isDarkMode ? '#0f172a' : '#f8fafc'}; color: ${textColor}; font-size: ${baseSize * 0.95}px; font-family: ${fontFamily}, -apple-system, sans-serif;"
+                  />
+                </div>
+                
+                <div class="flex gap-3 mt-5">
+                  <button 
+                    type="button"
+                    id="cancelBtn"
+                    style="flex: 1; padding: 11px; border-radius: 10px; background: ${secondaryColor}; color: white; font-weight: 600; font-size: ${baseSize * 0.95}px; border: none; cursor: pointer; font-family: ${fontFamily}, -apple-system, sans-serif;"
+                  >
+                    Cancelar
+                  </button>
+                  <button 
+                    type="submit"
+                    id="submitDeviceBtn"
+                    style="flex: 1; padding: 11px; border-radius: 10px; background: ${primaryColor}; color: white; font-weight: 600; font-size: ${baseSize * 0.95}px; border: none; cursor: pointer; font-family: ${fontFamily}, -apple-system, sans-serif;"
+                  >
+                    Adicionar
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+      `;
+
+      renderDevicesList();
+
+      document.getElementById('themeToggle').addEventListener('click', toggleTheme);
+      document.getElementById('logoutBtn').addEventListener('click', handleLogout);
+      document.getElementById('addDeviceBtn').addEventListener('click', openModal);
+      document.getElementById('cancelBtn').addEventListener('click', closeModal);
+      document.getElementById('deviceForm').addEventListener('submit', handleAddDevice);
+      document.getElementById('devicesTab').addEventListener('click', () => switchTab('devices'));
+      document.getElementById('consumptionTab').addEventListener('click', () => switchTab('consumption'));
+    }
+
+    function renderDevicesList() {
+      const devicesList = document.getElementById('devicesList');
+      const baseSize = config.font_size || defaultConfig.font_size;
+      const fontFamily = config.font_family || defaultConfig.font_family;
+      const surfaceColor = isDarkMode ? (config.surface_color || defaultConfig.surface_color) : '#ffffff';
+      const textColor = isDarkMode ? (config.text_color || defaultConfig.text_color) : '#0f172a';
+      const primaryColor = config.primary_action_color || defaultConfig.primary_action_color;
+
+      if (devices.length === 0) {
+        devicesList.innerHTML = `
+          <div class="col-span-full text-center py-12" style="color: ${textColor}; opacity: 0.6;">
+            <p style="font-size: ${baseSize * 1.2}px;">Nenhum dispositivo cadastrado ainda</p>
+            <p style="font-size: ${baseSize * 0.85}px; margin-top: 8px;">Clique em "Adicionar Dispositivo" para começar</p>
+          </div>
+        `;
+        return;
+      }
+
+      devicesList.innerHTML = devices.map(device => {
+        const icon = getDeviceIcon(device.device_type);
+        return `
+          <div class="device-card rounded-xl p-4" style="background: ${surfaceColor}; border: 1px solid ${isDarkMode ? '#334155' : '#e2e8f0'}; box-shadow: 0 2px 8px rgba(0,0,0,0.05); border-radius: 16px;">
+            <div class="flex justify-between items-start mb-3">
+              <div class="flex items-center gap-2">
+                <div style="font-size: 32px;">${icon}</div>
+                <div>
+                  <h3 style="font-size: ${baseSize}px; font-weight: 600; color: ${textColor}; margin-bottom: 2px;">${device.device_name}</h3>
+                  <p style="font-size: ${baseSize * 0.75}px; color: ${textColor}; opacity: 0.6;">${device.room}</p>
+                </div>
+              </div>
+              
+              <button 
+                class="toggle-switch"
+                onclick="toggleDevice('${device.id}')"
+                style="width: 48px; height: 26px; border-radius: 13px; background: ${device.status ? primaryColor : '#64748b'}; border: none; cursor: pointer; position: relative; transition: all 0.3s ease; box-shadow: inset 0 2px 4px rgba(0,0,0,0.1); flex-shrink: 0;"
+              >
+                <div style="width: 20px; height: 20px; border-radius: 50%; background: white; position: absolute; top: 3px; ${device.status ? 'right: 3px' : 'left: 3px'}; transition: all 0.3s ease; box-shadow: 0 2px 4px rgba(0,0,0,0.2);"></div>
+              </button>
+            </div>
+            
+            ${device.device_type === 'thermostat' ? `
+              <div style="margin-top: 12px; padding: 12px; background: ${isDarkMode ? '#0f172a' : '#f8fafc'}; border-radius: 12px;">
+                <div class="flex justify-between items-center mb-2">
+                  <span style="font-size: ${baseSize * 0.8}px; color: ${textColor}; font-weight: 500;">Temperatura</span>
+                  <span style="font-size: ${baseSize * 1.1}px; font-weight: 700; color: ${primaryColor};">${device.value || 22}°C</span>
+                </div>
+                <input 
+                  type="range" 
+                  min="16" 
+                  max="30" 
+                  value="${device.value || 22}"
+                  onchange="updateDeviceValue('${device.id}', this.value)"
+                  style="width: 100%; accent-color: ${primaryColor}; height: 6px; cursor: pointer;"
+                />
+              </div>
+            ` : ''}
+            
+            <button 
+              onclick="confirmDeleteDevice('${device.id}')"
+              style="width: 100%; margin-top: 12px; padding: 8px; border-radius: 10px; background: transparent; color: #ef4444; font-size: ${baseSize * 0.8}px; border: 1.5px solid #ef4444; cursor: pointer; font-family: ${fontFamily}, -apple-system, sans-serif; font-weight: 500; transition: all 0.2s ease;"
+              onmouseover="this.style.background='#ef4444'; this.style.color='white'"
+              onmouseout="this.style.background='transparent'; this.style.color='#ef4444'"
+            >
+              Remover
+            </button>
+          </div>
+        `;
+      }).join('');
+    }
+
+    function getDeviceIcon(type) {
+      const icons = {
+        light: '💡',
+        thermostat: '🌡️',
+        lock: '🔒',
+        camera: '📹',
+        speaker: '🔊'
+      };
+      return icons[type] || '📱';
+    }
+
+    async function toggleDevice(id) {
+      const device = devices.find(d => d.id === id);
+      if (!device) return;
+
+      device.status = !device.status;
+      
+      const result = await window.dataSdk.update(device);
+      if (result.isOk) {
+        showToast(`${device.device_name} ${device.status ? 'ligado' : 'desligado'}`, "success");
+      } else {
+        showToast("Erro ao atualizar dispositivo", "error");
+      }
+    }
+
+    async function updateDeviceValue(id, value) {
+      const device = devices.find(d => d.id === id);
+      if (!device) return;
+
+      device.value = parseInt(value);
+      
+      const result = await window.dataSdk.update(device);
+      if (result.isOk) {
+        renderDevicesList();
+      }
+    }
+
+    function confirmDeleteDevice(id) {
+      const device = devices.find(d => d.id === id);
+      if (!device) return;
+
+      const card = event.target.closest('.device-card');
+      const baseSize = config.font_size || defaultConfig.font_size;
+      const fontFamily = config.font_family || defaultConfig.font_family;
+      
+      card.innerHTML = `
+        <div style="text-align: center; padding: 20px;">
+          <p style="font-size: ${baseSize}px; margin-bottom: 16px; color: ${isDarkMode ? config.text_color : '#0f172a'};">Confirmar exclusão?</p>
+          <div class="flex gap-3">
+            <button 
+              onclick="cancelDelete('${id}')"
+              style="flex: 1; padding: 10px; border-radius: 12px; background: ${config.secondary_action_color || defaultConfig.secondary_action_color}; color: white; border: none; cursor: pointer; font-family: ${fontFamily}, -apple-system, sans-serif;"
+            >
+              Cancelar
+            </button>
+            <button 
+              onclick="deleteDevice('${id}')"
+              style="flex: 1; padding: 10px; border-radius: 12px; background: #ef4444; color: white; border: none; cursor: pointer; font-family: ${fontFamily}, -apple-system, sans-serif;"
+            >
+              Confirmar
+            </button>
+          </div>
+        </div>
+      `;
+    }
+
+    function cancelDelete(id) {
+      renderDevicesList();
+    }
+
+    async function deleteDevice(id) {
+      const device = devices.find(d => d.id === id);
+      if (!device) return;
+
+      const result = await window.dataSdk.delete(device);
+      if (result.isOk) {
+        showToast("Dispositivo removido com sucesso", "success");
+      } else {
+        showToast("Erro ao remover dispositivo", "error");
+      }
+    }
+
+    function openModal() {
+      document.getElementById('modal').style.display = 'flex';
+    }
+
+    function closeModal() {
+      document.getElementById('modal').style.display = 'none';
+      document.getElementById('deviceForm').reset();
+    }
+
+    async function handleAddDevice(e) {
+      e.preventDefault();
+
+      if (devices.length >= 999) {
+        showToast("Limite máximo de 999 dispositivos atingido", "error");
+        return;
+      }
+
+      const submitBtn = document.getElementById('submitDeviceBtn');
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Adicionando...';
+
+      const newDevice = {
+        id: Date.now().toString(),
+        device_name: document.getElementById('deviceName').value,
+        device_type: document.getElementById('deviceType').value,
+        room: document.getElementById('deviceRoom').value,
+        status: false,
+        value: 22,
+        created_at: new Date().toISOString()
+      };
+
+      const result = await window.dataSdk.create(newDevice);
+      
+      submitBtn.disabled = false;
+      submitBtn.textContent = 'Adicionar';
+
+      if (result.isOk) {
+        showToast("Dispositivo adicionado com sucesso!", "success");
+        closeModal();
+      } else {
+        showToast("Erro ao adicionar dispositivo", "error");
+      }
+    }
+
+    function toggleTheme() {
+      const icon = document.getElementById('themeIcon');
+      
+      if (icon) {
+        icon.classList.add('theme-icon-spin');
+        
+        setTimeout(() => {
+          isDarkMode = !isDarkMode;
+          icon.textContent = isDarkMode ? '🌙' : '☀️';
+          
+          setTimeout(() => {
+            icon.classList.remove('theme-icon-spin');
+          }, 50);
+          
+          renderDashboard();
+        }, 300);
+      } else {
+        isDarkMode = !isDarkMode;
+        renderDashboard();
+      }
+    }
+
+    function handleLogout() {
+      currentUser = null;
+      showToast("Logout realizado com sucesso", "success");
+      setTimeout(() => renderLogin(), 500);
+    }
+
+    function switchTab(tab) {
+      const devicesTab = document.getElementById('devicesTab');
+      const consumptionTab = document.getElementById('consumptionTab');
+      const devicesView = document.getElementById('devicesView');
+      const consumptionView = document.getElementById('consumptionView');
+      
+      const baseSize = config.font_size || defaultConfig.font_size;
+      const textColor = isDarkMode ? (config.text_color || defaultConfig.text_color) : '#0f172a';
+      const primaryColor = config.primary_action_color || defaultConfig.primary_action_color;
+
+      if (tab === 'devices') {
+        devicesTab.style.color = primaryColor;
+        devicesTab.style.opacity = '1';
+        devicesTab.style.borderBottom = `2px solid ${primaryColor}`;
+        consumptionTab.style.color = textColor;
+        consumptionTab.style.opacity = '0.6';
+        consumptionTab.style.borderBottom = '2px solid transparent';
+        devicesView.style.display = 'block';
+        consumptionView.style.display = 'none';
+      } else {
+        consumptionTab.style.color = primaryColor;
+        consumptionTab.style.opacity = '1';
+        consumptionTab.style.borderBottom = `2px solid ${primaryColor}`;
+        devicesTab.style.color = textColor;
+        devicesTab.style.opacity = '0.6';
+        devicesTab.style.borderBottom = '2px solid transparent';
+        devicesView.style.display = 'none';
+        consumptionView.style.display = 'block';
+        renderConsumptionCharts();
+      }
+    }
+
+    function getDeviceConsumption(device) {
+      const baseConsumption = {
+        light: 0.06,
+        thermostat: 1.5,
+        lock: 0.01,
+        camera: 0.5,
+        speaker: 0.2
+      };
+      
+      const hoursPerDay = device.status ? Math.random() * 8 + 4 : 0;
+      const consumption = baseConsumption[device.device_type] * hoursPerDay * 30;
+      return parseFloat(consumption.toFixed(2));
+    }
+
+    function renderConsumptionCharts() {
+      if (devices.length === 0) {
+        renderEmptyConsumption();
+        return;
+      }
+
+      renderDeviceConsumptionChart();
+      renderRoomConsumptionChart();
+      renderWeeklyConsumptionChart();
+      renderTypeDistributionChart();
+      renderConsumptionTable();
+    }
+
+    function renderEmptyConsumption() {
+      const baseSize = config.font_size || defaultConfig.font_size;
+      const textColor = isDarkMode ? (config.text_color || defaultConfig.text_color) : '#0f172a';
+      
+      document.getElementById('deviceConsumptionChart').innerHTML = `
+        <div style="display: flex; align-items: center; justify-content: center; height: 100%; color: ${textColor}; opacity: 0.6; font-size: ${baseSize}px;">
+          Adicione dispositivos para ver o consumo
+        </div>
+      `;
+      document.getElementById('roomConsumptionChart').innerHTML = `
+        <div style="display: flex; align-items: center; justify-content: center; height: 100%; color: ${textColor}; opacity: 0.6; font-size: ${baseSize}px;">
+          Adicione dispositivos para ver o consumo
+        </div>
+      `;
+      document.getElementById('weeklyConsumptionChart').innerHTML = `
+        <div style="display: flex; align-items: center; justify-content: center; height: 100%; color: ${textColor}; opacity: 0.6; font-size: ${baseSize}px;">
+          Adicione dispositivos para ver o consumo
+        </div>
+      `;
+      document.getElementById('typeDistributionChart').innerHTML = `
+        <div style="display: flex; align-items: center; justify-content: center; height: 100%; color: ${textColor}; opacity: 0.6; font-size: ${baseSize}px;">
+          Adicione dispositivos para ver o consumo
+        </div>
+      `;
+      document.getElementById('consumptionTable').innerHTML = `
+        <div style="text-align: center; padding: 24px; color: ${textColor}; opacity: 0.6; font-size: ${baseSize}px;">
+          Adicione dispositivos para ver detalhes de consumo
+        </div>
+      `;
+    }
+
+    function renderDeviceConsumptionChart() {
+      const chartContainer = document.getElementById('deviceConsumptionChart');
+      const baseSize = config.font_size || defaultConfig.font_size;
+      const textColor = isDarkMode ? (config.text_color || defaultConfig.text_color) : '#0f172a';
+      const primaryColor = config.primary_action_color || defaultConfig.primary_action_color;
+
+      const deviceData = devices.map(d => ({
+        name: d.device_name,
+        consumption: getDeviceConsumption(d)
+      })).sort((a, b) => b.consumption - a.consumption).slice(0, 8);
+
+      const maxConsumption = Math.max(...deviceData.map(d => d.consumption));
+
+      chartContainer.innerHTML = deviceData.map(d => `
+        <div style="margin-bottom: 12px;">
+          <div class="flex justify-between items-center mb-2">
+            <span style="font-size: ${baseSize * 0.85}px; color: ${textColor};">${d.name}</span>
+            <span style="font-size: ${baseSize * 0.85}px; font-weight: 600; color: ${primaryColor};">${d.consumption} kWh</span>
+          </div>
+          <div style="height: 8px; background: ${isDarkMode ? '#334155' : '#e2e8f0'}; border-radius: 6px; overflow: hidden;">
+            <div style="height: 100%; width: ${(d.consumption / maxConsumption) * 100}%; background: ${primaryColor}; transition: width 0.5s ease;"></div>
+          </div>
+        </div>
+      `).join('');
+    }
+
+    function renderRoomConsumptionChart() {
+      const chartContainer = document.getElementById('roomConsumptionChart');
+      const baseSize = config.font_size || defaultConfig.font_size;
+      const textColor = isDarkMode ? (config.text_color || defaultConfig.text_color) : '#0f172a';
+      const primaryColor = config.primary_action_color || defaultConfig.primary_action_color;
+
+      const roomData = {};
+      devices.forEach(d => {
+        if (!roomData[d.room]) roomData[d.room] = 0;
+        roomData[d.room] += getDeviceConsumption(d);
+      });
+
+      const roomArray = Object.entries(roomData).map(([room, consumption]) => ({
+        room,
+        consumption: parseFloat(consumption.toFixed(2))
+      })).sort((a, b) => b.consumption - a.consumption);
+
+      const maxConsumption = Math.max(...roomArray.map(r => r.consumption));
+
+      chartContainer.innerHTML = roomArray.map(r => `
+        <div style="margin-bottom: 12px;">
+          <div class="flex justify-between items-center mb-2">
+            <span style="font-size: ${baseSize * 0.85}px; color: ${textColor};">${r.room}</span>
+            <span style="font-size: ${baseSize * 0.85}px; font-weight: 600; color: ${primaryColor};">${r.consumption} kWh</span>
+          </div>
+          <div style="height: 8px; background: ${isDarkMode ? '#334155' : '#e2e8f0'}; border-radius: 6px; overflow: hidden;">
+            <div style="height: 100%; width: ${(r.consumption / maxConsumption) * 100}%; background: ${primaryColor}; transition: width 0.5s ease;"></div>
+          </div>
+        </div>
+      `).join('');
+    }
+
+    function renderWeeklyConsumptionChart() {
+      const chartContainer = document.getElementById('weeklyConsumptionChart');
+      const baseSize = config.font_size || defaultConfig.font_size;
+      const textColor = isDarkMode ? (config.text_color || defaultConfig.text_color) : '#0f172a';
+      const primaryColor = config.primary_action_color || defaultConfig.primary_action_color;
+
+      const days = ['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Dom'];
+      const totalDaily = devices.reduce((sum, d) => sum + getDeviceConsumption(d), 0) / 30;
+      
+      const weeklyData = days.map(day => ({
+        day,
+        consumption: parseFloat((totalDaily * (0.8 + Math.random() * 0.4)).toFixed(2))
+      }));
+
+      const maxConsumption = Math.max(...weeklyData.map(d => d.consumption));
+
+      chartContainer.innerHTML = `
+        <div style="display: flex; align-items: flex-end; justify-content: space-between; height: 250px; padding-top: 20px;">
+          ${weeklyData.map(d => `
+            <div style="flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; height: 100%;">
+              <div style="margin-bottom: 8px; font-size: ${baseSize * 0.75}px; font-weight: 600; color: ${primaryColor};">${d.consumption}</div>
+              <div style="width: 80%; background: ${primaryColor}; border-radius: 8px 8px 0 0; height: ${(d.consumption / maxConsumption) * 80}%; min-height: 20px; transition: height 0.5s ease;"></div>
+              <div style="margin-top: 8px; font-size: ${baseSize * 0.75}px; color: ${textColor};">${d.day}</div>
+            </div>
+          `).join('')}
+        </div>
+      `;
+    }
+
+    function renderTypeDistributionChart() {
+      const chartContainer = document.getElementById('typeDistributionChart');
+      const baseSize = config.font_size || defaultConfig.font_size;
+      const textColor = isDarkMode ? (config.text_color || defaultConfig.text_color) : '#0f172a';
+
+      const typeData = {};
+      const typeNames = {
+        light: 'Luzes',
+        thermostat: 'Termostatos',
+        lock: 'Fechaduras',
+        camera: 'Câmeras',
+        speaker: 'Alto-falantes'
+      };
+
+      devices.forEach(d => {
+        if (!typeData[d.device_type]) typeData[d.device_type] = 0;
+        typeData[d.device_type] += getDeviceConsumption(d);
+      });
+
+      const typeArray = Object.entries(typeData).map(([type, consumption]) => ({
+        type: typeNames[type] || type,
+        consumption: parseFloat(consumption.toFixed(2))
+      }));
+
+      const total = typeArray.reduce((sum, t) => sum + t.consumption, 0);
+      const colors = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6'];
+
+      chartContainer.innerHTML = `
+        <div style="display: flex; flex-direction: column; gap: 16px;">
+          ${typeArray.map((t, i) => {
+            const percentage = ((t.consumption / total) * 100).toFixed(1);
+            return `
+              <div>
+                <div class="flex justify-between items-center mb-2">
+                  <div class="flex items-center gap-2">
+                    <div style="width: 12px; height: 12px; border-radius: 50%; background: ${colors[i % colors.length]};"></div>
+                    <span style="font-size: ${baseSize * 0.85}px; color: ${textColor};">${t.type}</span>
+                  </div>
+                  <span style="font-size: ${baseSize * 0.85}px; font-weight: 600; color: ${textColor};">${t.consumption} kWh (${percentage}%)</span>
+                </div>
+                <div style="height: 6px; background: ${isDarkMode ? '#334155' : '#e2e8f0'}; border-radius: 6px; overflow: hidden;">
+                  <div style="height: 100%; width: ${percentage}%; background: ${colors[i % colors.length]}; transition: width 0.5s ease;"></div>
+                </div>
+              </div>
+            `;
+          }).join('')}
+        </div>
+      `;
+    }
+
+    function renderConsumptionTable() {
+      const tableContainer = document.getElementById('consumptionTable');
+      const baseSize = config.font_size || defaultConfig.font_size;
+      const textColor = isDarkMode ? (config.text_color || defaultConfig.text_color) : '#0f172a';
+      const surfaceColor = isDarkMode ? (config.surface_color || defaultConfig.surface_color) : '#ffffff';
+
+      const deviceData = devices.map(d => ({
+        name: d.device_name,
+        type: d.device_type,
+        room: d.room,
+        status: d.status,
+        consumption: getDeviceConsumption(d)
+      })).sort((a, b) => b.consumption - a.consumption);
+
+      const totalConsumption = deviceData.reduce((sum, d) => sum + d.consumption, 0);
+      const estimatedCost = (totalConsumption * 0.75).toFixed(2);
+
+      tableContainer.innerHTML = `
+        <div style="margin-bottom: 16px; padding: 16px; background: ${isDarkMode ? '#0f172a' : '#f8fafc'}; border-radius: 14px;">
+          <div class="flex justify-between items-center">
+            <div>
+              <div style="font-size: ${baseSize * 0.85}px; color: ${textColor}; opacity: 0.7;">Consumo Total Mensal</div>
+              <div style="font-size: ${baseSize * 1.5}px; font-weight: 700; color: ${textColor}; margin-top: 4px;">${totalConsumption.toFixed(2)} kWh</div>
+            </div>
+            <div style="text-align: right;">
+              <div style="font-size: ${baseSize * 0.85}px; color: ${textColor}; opacity: 0.7;">Custo Estimado</div>
+              <div style="font-size: ${baseSize * 1.5}px; font-weight: 700; color: #10b981; margin-top: 4px;">R$ ${estimatedCost}</div>
+            </div>
+          </div>
+        </div>
+
+        <div style="overflow-x: auto;">
+          <table style="width: 100%; border-collapse: collapse;">
+            <thead>
+              <tr style="border-bottom: 2px solid ${isDarkMode ? '#334155' : '#e2e8f0'};">
+                <th style="padding: 12px; text-align: left; font-size: ${baseSize * 0.85}px; color: ${textColor}; opacity: 0.7; font-weight: 600;">Dispositivo</th>
+                <th style="padding: 12px; text-align: left; font-size: ${baseSize * 0.85}px; color: ${textColor}; opacity: 0.7; font-weight: 600;">Tipo</th>
+                <th style="padding: 12px; text-align: left; font-size: ${baseSize * 0.85}px; color: ${textColor}; opacity: 0.7; font-weight: 600;">Cômodo</th>
+                <th style="padding: 12px; text-align: center; font-size: ${baseSize * 0.85}px; color: ${textColor}; opacity: 0.7; font-weight: 600;">Status</th>
+                <th style="padding: 12px; text-align: right; font-size: ${baseSize * 0.85}px; color: ${textColor}; opacity: 0.7; font-weight: 600;">Consumo (kWh)</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${deviceData.map(d => `
+                <tr style="border-bottom: 1px solid ${isDarkMode ? '#334155' : '#e2e8f0'};">
+                  <td style="padding: 12px; font-size: ${baseSize * 0.85}px; color: ${textColor};">${d.name}</td>
+                  <td style="padding: 12px; font-size: ${baseSize * 0.85}px; color: ${textColor};">${getDeviceIcon(d.type)} ${d.type}</td>
+                  <td style="padding: 12px; font-size: ${baseSize * 0.85}px; color: ${textColor};">${d.room}</td>
+                  <td style="padding: 12px; text-align: center;">
+                    <span style="display: inline-block; padding: 4px 12px; border-radius: 10px; font-size: ${baseSize * 0.75}px; font-weight: 600; background: ${d.status ? '#10b98120' : '#64748b20'}; color: ${d.status ? '#10b981' : '#64748b'};">
+                      ${d.status ? 'Ativo' : 'Inativo'}
+                    </span>
+                  </td>
+                  <td style="padding: 12px; text-align: right; font-size: ${baseSize * 0.85}px; font-weight: 600; color: ${textColor};">${d.consumption} kWh</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        </div>
+      `;
+    }
+
+    function showToast(message, type) {
+      const container = document.getElementById('toast-container');
+      if (!container) return;
+
+      const toast = document.createElement('div');
+      const bgColor = type === 'success' ? '#10b981' : '#ef4444';
+      
+      toast.className = 'toast';
+      toast.style.cssText = `
+        background: ${bgColor};
+        color: white;
+        padding: 12px 20px;
+        border-radius: 12px;
+        margin-bottom: 10px;
+        font-size: ${(config.font_size || defaultConfig.font_size) * 0.85}px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        font-family: ${config.font_family || defaultConfig.font_family}, -apple-system, sans-serif;
+      `;
+      toast.textContent = message;
+      
+      container.appendChild(toast);
+      
+      setTimeout(() => {
+        toast.style.opacity = '0';
+        toast.style.transform = 'translateY(-100%)';
+        setTimeout(() => toast.remove(), 300);
+      }, 3000);
+    }
+
+    window.toggleDevice = toggleDevice;
+    window.updateDeviceValue = updateDeviceValue;
+    window.confirmDeleteDevice = confirmDeleteDevice;
+    window.cancelDelete = cancelDelete;
+    window.deleteDevice = deleteDevice;
+
+    initApp();
+  </script>
+ <script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'9b5c8115a28c27fa',t:'MTc2NzA0NDkzNC4wMDAwMDA='};var a=document.createElement('script');a.nonce='';a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+</html>
